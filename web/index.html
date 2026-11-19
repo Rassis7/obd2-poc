@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Telemetria OBD-II</title>
+<style>
+:root{font:16px system-ui;color:#e3eeed;background:#101818;color-scheme:dark}
+body{max-width:58rem;margin:6vh auto;padding:1rem}h1{font-size:clamp(2rem,5vw,4rem);margin:.4em 0}
+h2{font-size:1.15rem}section{border-top:1px solid #45605c;margin:2rem 0;padding-top:.6rem}
+button,select{font:inherit;padding:.55rem;margin:.25rem 0}button{cursor:pointer}button:disabled{cursor:default}
+ul{display:flex;flex-wrap:wrap;gap:1rem;list-style:none;padding:0}li{flex:1;min-width:10rem;background:#1b2b29;border-radius:.6rem;padding:1rem}
+strong{display:block;color:#81edcf;font:600 2rem ui-monospace,monospace;margin:.5rem 0}
+small{color:#afc3be}#file{overflow-wrap:anywhere}#error{color:#ffc197}
+</style>
+<main><h1>Telemetria OBD-II</h1>
+<section><h2>Bluetooth</h2><button id="scan">Buscar dispositivos</button>
+<label for="device">Dispositivo</label> <select id="device"><option value="">Faça uma busca</option></select>
+<button id="connect" disabled>Conectar</button> <button id="stop" disabled>Encerrar coleta</button>
+<p id="message" role="status"></p><p id="error" role="alert"></p></section>
+<section><h2>Leituras ao vivo</h2><p id="status" role="status">Consultando serviço…</p>
+<ul id="cards"></ul><p id="file"></p></section></main>
+<script>
+const el=id=>document.getElementById(id);
+const metrics={'010C':'Rotação do motor','010D':'Velocidade','0105':'Temperatura do líquido de arrefecimento',
+ '0104':'Carga do motor','0111':'Posição da borboleta','010F':'Temperatura do ar de admissão',
+ '0142':'Tensão da central','015E':'Vazão de combustível','012F':'Nível de combustível',
+ '015C':'Temperatura do óleo','010B':'Pressão absoluta no coletor','0110':'Vazão de ar admitido',
+ '0106':'Correção de combustível · banco 1, curto prazo','0107':'Correção de combustível · banco 1, longo prazo',
+ 'economy':'Rendimento instantâneo'};
+for(const [id,title] of Object.entries(metrics)){
+ const card=document.createElement('li'), value=document.createElement('strong'), stamp=document.createElement('small');
+ value.id=id; stamp.id=id+'time'; value.textContent='—';
+ card.hidden=true; card.append(title,value,stamp); el('cards').append(card);
+}
+async function post(action,body={}){
+ const r=await fetch('/api/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const data=await r.json(); if(!r.ok) throw Error(data.error||'Pedido recusado'); return data;
+}
+let active=false;
+function buttons(){el('connect').disabled=active||!el('device').value;el('stop').disabled=!active}
+el('device').onchange=buttons;
+el('scan').onclick=async()=>{
+ el('scan').disabled=true;el('message').textContent='Buscando…';el('error').textContent='';
+ try{
+ const rows=await post('scan');el('device').replaceChildren(new Option('Selecionar…',''));
+ for(const d of rows){const opt=new Option(d.name+' · '+d.id+' · '+(d.transport==='ble'?'BLE (sem serial)':'Clássico'),d.id);
+ opt.disabled=d.transport==='ble';el('device').add(opt)}
+ el('message').textContent=rows.length+' dispositivo(s) encontrado(s).';
+ }catch(e){el('error').textContent=e.message;el('message').textContent='Busca interrompida.'}
+ finally{el('scan').disabled=false;buttons()}
+};
+for(const action of ['connect','stop']) el(action).onclick=async()=>{
+ el(action).disabled=true;
+ try{await post(action,{id:el('device').value});el('error').textContent=''}catch(e){el('error').textContent=e.message}
+};
+async function refresh(){
+ try{
+ const r=await fetch('/api/state');if(!r.ok) throw Error();const s=await r.json();
+ active=s.adapter||s.status==='Conectando';buttons();
+ el('status').textContent=s.status+' · Adaptador '+(s.adapter?'conectado':'desconectado')+' · Central '+(s.ecu?'conectada':'sem leitura');
+ el('file').textContent=s.path?'Arquivo da sessão: '+s.path:'';
+ const readings=s.sensors;
+ const speed=readings['010D'], fuel=readings['015E'];
+ const fresh=row=>row && Number.isFinite(row.value) && Date.now()-Date.parse(row.time)>=0 && Date.now()-Date.parse(row.time)<=10000;
+ if(s.ecu && fresh(speed) && fresh(fuel) && speed.value>0 && fuel.value>0 && speed.ecu===fuel.ecu){
+   readings.economy={value:speed.value/fuel.value,unit:'km/L',time:speed.time<fuel.time?speed.time:fuel.time};
+ }
+ for(const id of Object.keys(metrics)){
+   const row=readings[id],value=el(id);
+   value.parentElement.hidden=!(id in readings);
+   value.textContent=row?row.value.toLocaleString('pt-BR',{maximumFractionDigits:id==='0142'?3:2})+' '+row.unit:'—';
+   el(id+'time').textContent=row?'Última leitura '+new Date(row.time).toLocaleTimeString():'Sem leitura';
+ }
+ }catch{el('economy').parentElement.hidden=true;el('status').textContent='Serviço local indisponível. Leituras pausadas.'}
+ setTimeout(refresh,800)
+}
+refresh();
+</script></html>
