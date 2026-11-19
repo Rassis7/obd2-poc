@@ -23,11 +23,33 @@ class Handler(BaseHTTPRequestHandler):
     def valid_host(self):
         return self.headers.get('Host') in (f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}')
 
+    def stream_events(self):
+        source = session
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        revision = -1
+        try:
+            while True:
+                with source.changed:
+                    if source.changed.wait_for(lambda: source.revision != revision, timeout=15):
+                        revision = source.revision
+                        event = 'data: ' + json.dumps(source.state) + '\n\n'
+                    else:
+                        event = ': heartbeat\n\n'
+                self.wfile.write(event.encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
+
     def do_GET(self):
         if not self.valid_host():
             return self.reply(403, {})
         if self.path == '/':
             return self.reply(200, (ROOT/'web/index.html').read_bytes(), 'text/html')
+        if self.path == '/api/events':
+            return self.stream_events()
         if self.path == '/api/state':
             with session.lock:
                 data = {**session.state, 'sensors':session.state['sensors'].copy()}

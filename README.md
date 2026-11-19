@@ -15,3 +15,5 @@ A coleta serial consulta os parâmetros anunciados em sequência. Uma volta comp
 A dashboard exibe os sensores anunciados pela central: rotação, velocidade, temperatura do líquido de arrefecimento, carga, borboleta, temperaturas do ar e do óleo, tensão da central, vazão e nível de combustível, MAP, MAF e correções de combustível do banco 1. Os novos valores e unidades são registrados no JSONL junto à resposta bruta. O rendimento instantâneo é calculado na página quando velocidade e vazão são positivas e a mesma central informou ambas nos últimos 10 segundos. Em marcha lenta, acompanhe L/h.
 
 Para decodificar as respostas de uma sessão anterior, execute `python3 reprocess.py sessoes/arquivo.jsonl`. O comando cria um arquivo irmão com sufixo `.decodificado.jsonl` e preserva o original.
+
+O navegador mantém uma conexão SSE em `/api/events`. Ao abrir ou reconectar a página, recebe o estado atual. Durante a coleta, cada consulta concluída pode atualizar a tela, respeitando a velocidade de resposta do adaptador e a ordem dos sensores. Várias abas compartilham a mesma coleta.

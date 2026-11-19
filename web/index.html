@@ -49,11 +49,11 @@ el('scan').onclick=async()=>{
 };
 for(const action of ['connect','stop']) el(action).onclick=async()=>{
  el(action).disabled=true;
- try{await post(action,{id:el('device').value});el('error').textContent=''}catch(e){el('error').textContent=e.message}
+ try{await post(action,{id:el('device').value});el('error').textContent=''}catch(e){el('error').textContent=e.message;buttons()}
 };
-async function refresh(){
- try{
- const r=await fetch('/api/state');if(!r.ok) throw Error();const s=await r.json();
+let expiry;
+function render(s){
+ clearTimeout(expiry);
  active=s.adapter||s.status==='Conectando';buttons();
  el('status').textContent=s.status+' · Adaptador '+(s.adapter?'conectado':'desconectado')+' · Central '+(s.ecu?'conectada':'sem leitura');
  el('file').textContent=s.path?'Arquivo da sessão: '+s.path:'';
@@ -62,6 +62,7 @@ async function refresh(){
  const fresh=row=>row && Number.isFinite(row.value) && Date.now()-Date.parse(row.time)>=0 && Date.now()-Date.parse(row.time)<=10000;
  if(s.ecu && fresh(speed) && fresh(fuel) && speed.value>0 && fuel.value>0 && speed.ecu===fuel.ecu){
    readings.economy={value:speed.value/fuel.value,unit:'km/L',time:speed.time<fuel.time?speed.time:fuel.time};
+   expiry=setTimeout(()=>{el('economy').parentElement.hidden=true},Math.max(0,10000+Date.parse(readings.economy.time)-Date.now()));
  }
  for(const id of Object.keys(metrics)){
    const row=readings[id],value=el(id);
@@ -69,8 +70,21 @@ async function refresh(){
    value.textContent=row?row.value.toLocaleString('pt-BR',{maximumFractionDigits:id==='0142'?3:2})+' '+row.unit:'—';
    el(id+'time').textContent=row?'Última leitura '+new Date(row.time).toLocaleTimeString():'Sem leitura';
  }
- }catch{el('economy').parentElement.hidden=true;el('status').textContent='Serviço local indisponível. Leituras pausadas.'}
- setTimeout(refresh,800)
 }
-refresh();
+const events=new EventSource('/api/events');
+events.onmessage=event=>render(JSON.parse(event.data));
+// Uma sessão iniciada antes da atualização ainda usa o servidor sem SSE.
+async function legacyRefresh(){
+ try{
+   const response=await fetch('/api/state');
+   if(!response.ok) throw Error();
+   render(await response.json());
+ }catch{el('status').textContent='Serviço local indisponível.'}
+ setTimeout(legacyRefresh,800);
+}
+events.onerror=()=>{
+ if(events.readyState===EventSource.CLOSED){legacyRefresh();return}
+ el('economy').parentElement.hidden=true;
+ el('status').textContent='Conexão ao vivo interrompida. Aguardando reconexão…';
+};
 </script></html>
