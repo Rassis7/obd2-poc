@@ -21,3 +21,6 @@ class CaptureTest(unittest.TestCase):
         collect(query, records.append, stop)
         self.assertTrue(any(r.get('command')=='0121' and r.get('raw') for r in records))
         self.assertTrue(any(r.get('command')=='010D' and r.get('ecu')=='7E9' and r.get('error') for r in records))
+
+    def test_compact_can_response(self):
+        self.assertEqual(frames('7E804410C0B9C\r', '410C'), [('7E8', bytes.fromhex('0B9C'))])

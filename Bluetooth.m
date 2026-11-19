@@ -41,14 +41,20 @@ static void emit(NSString *key, NSString *name, NSString *transport) {
 }
 - (void)rfcommChannelClosed:(IOBluetoothRFCOMMChannel *)c { fail(@"Adaptador desconectado."); }
 - (void)openSerial {
+    IOBluetoothSDPServiceRecord *cached = [self.device getServiceRecordForUUID:[IOBluetoothSDPUUID uuid16:0x1101]];
+    if (cached && [self openRecord:cached]) return;
     if ([self.device performSDPQuery:self] != kIOReturnSuccess) fail(@"Falha na consulta de serviços.");
 }
 - (void)sdpQueryComplete:(IOBluetoothDevice *)device status:(IOReturn)status {
     IOBluetoothSDPServiceRecord *record = [device getServiceRecordForUUID:[IOBluetoothSDPUUID uuid16:0x1101]];
+    if (status || !record) fail(@"Serviço serial SPP indisponível.");
+    if (![self openRecord:record]) fail(@"Falha ao abrir o canal serial Bluetooth.");
+}
+- (BOOL)openRecord:(IOBluetoothSDPServiceRecord *)record {
     BluetoothRFCOMMChannelID cid;
-    if (status || !record || [record getRFCOMMChannelID:&cid]) fail(@"Serviço serial SPP indisponível.");
+    if ([record getRFCOMMChannelID:&cid]) return NO;
     IOBluetoothRFCOMMChannel *channel = nil;
-    if ([device openRFCOMMChannelSync:&channel withChannelID:cid delegate:self]) fail(@"Falha ao abrir o canal serial.");
+    if ([self.device openRFCOMMChannelSync:&channel withChannelID:cid delegate:self]) return NO;
     self.channel = channel;
     puts("READY"); fflush(stdout);
     [NSFileHandle fileHandleWithStandardInput].readabilityHandler = ^(NSFileHandle *handle) {
@@ -58,6 +64,7 @@ static void emit(NSString *key, NSString *name, NSString *transport) {
             if (data.length > UINT16_MAX || [channel writeSync:(void *)data.bytes length:(UInt16)data.length]) fail(@"Falha ao enviar consulta.");
         });
     };
+    return YES;
 }
 - (NSAlert *)pairingAlert:(NSString *)message {
     [NSApplication sharedApplication];
