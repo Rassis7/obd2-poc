@@ -30,23 +30,15 @@ class Journal:
 class Session:
     def __init__(self):
         self.lock = threading.RLock()
-        self.changed = threading.Condition(self.lock)
-        self.revision = 0
         self.thread = None
         self.state = dict(status='Parado', adapter=False, ecu=False, sensors={})
-
-    def publish(self):
-        # Caller holds the session lock while changing the shared state.
-        self.revision += 1
-        self.changed.notify_all()
 
     def start(self, address, factory, folder):
         with self.lock:
             if self.thread and self.thread.is_alive():
                 raise ValueError('Uma sessão já está ativa.')
             self.stop = threading.Event()
-            self.state = dict(status='Conectando', adapter=False, ecu=False, sensors={})
-            self.publish()
+            self.state = dict(status='Conectando', adapter=False, ecu=False, sensors={}, simulated=address == 'sandbox-simulado')
             self.thread = threading.Thread(target=self.run, args=(address,factory,folder), daemon=True)
             self.thread.start()
 
@@ -54,6 +46,39 @@ class Session:
         with self.lock:
             if self.thread and self.thread.is_alive():
                 self.stop.set()
+
+    def replay(self, path):
+        with self.lock:
+            if self.thread and self.thread.is_alive():
+                raise ValueError('Uma sessão já está ativa.')
+            self.stop = threading.Event()
+            self.state = dict(status='Reproduzindo', adapter=True, ecu=False, sensors={}, replay=True, path=str(path))
+            self.thread = threading.Thread(target=self._replay, args=(path,), daemon=True)
+            self.thread.start()
+
+    def _replay(self, path):
+        previous = None
+        try:
+            with path.open(encoding='utf8') as source:
+                for line in source:
+                    row = json.loads(line)
+                    stamp = datetime.fromisoformat(row['time']) if row.get('time') else None
+                    if previous and stamp and self.stop.wait(max(0, (stamp - previous).total_seconds())):
+                        break
+                    if self.stop.is_set():
+                        break
+                    if stamp:
+                        previous = stamp
+                    if row.get('value') is not None and row.get('command', '').startswith('01'):
+                        row['time'] = now()
+                        with self.lock:
+                            self.state['sensors'][row['command']] = row
+                            self.state['ecu'] = True
+            status = 'Reprodução encerrada'
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            status = f'Erro na reprodução: {exc}'
+        with self.lock:
+            self.state.update(status=status, adapter=False, ecu=False)
 
     def run(self, address, factory, folder):
         link = None
@@ -78,7 +103,6 @@ class Session:
                                 sensors[cmd] = None
                         if row.get('value') is not None:
                             self.state['sensors'][row['command']] = row
-                        self.publish()
                 with self.lock:
                     self.state['path'] = str(log.path.resolve())
                 record(dict(event='start', device=address))
@@ -86,7 +110,6 @@ class Session:
                     link = factory(address)
                     with self.lock:
                         self.state.update(adapter=True, status='Consultando central')
-                        self.publish()
                     collect(link.query, record, self.stop)
                 except InterruptedError:
                     pass
@@ -102,4 +125,3 @@ class Session:
                 link.close()
             with self.lock:
                 self.state.update(status=status, ecu=False, adapter=False)
-                self.publish()

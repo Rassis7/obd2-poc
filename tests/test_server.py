@@ -79,31 +79,3 @@ class ServerTests(unittest.TestCase):
             session.thread.join(2)
             self.assertTrue(session.state['status'].startswith('Erro:'))
             self.assertFalse(session.state['adapter'])
-
-    def test_events_push_reading_and_reconnect(self):
-        with tempfile.TemporaryDirectory() as tmp, patch.object(server, 'session', Session()):
-            http = server.ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
-            threading.Thread(target=http.serve_forever, daemon=True).start()
-            self.addCleanup(http.server_close)
-            self.addCleanup(http.shutdown)
-            url = f'http://127.0.0.1:{http.server_port}/api/events'
-            def read(stream):
-                line = stream.readline()
-                self.assertTrue(line.startswith(b'data: '))
-                self.assertEqual(stream.readline(), b'\n')
-                return json.loads(line[6:])
-            with urlopen(url, timeout=3) as stream:
-                self.assertEqual(stream.headers.get_content_type(), 'text/event-stream')
-                self.assertEqual(read(stream)['status'], 'Parado')
-                server.session.start('simulado', SimulatedLink, tmp)
-                try:
-                    while True:
-                        state = read(stream)
-                        if state['sensors'].get('010D'):
-                            break
-                    self.assertEqual(state['sensors']['010D']['value'], 0)
-                finally:
-                    server.session.end()
-                    server.session.thread.join(2)
-            with urlopen(url, timeout=3) as stream:
-                self.assertEqual(read(stream)['status'], 'Encerrado')

@@ -1,0 +1,59 @@
+{
+  "schema_version": "obd2.sim_scenario.v1",
+  "scenario_id": "obd_dashboard",
+  "synthetic": true,
+  "adapter_profile": "elm327_like_tcp",
+  "defaults": {
+    "at_response": "OK\r\r>",
+    "obd_response": "NO DATA\r\r>"
+  },
+  "commands": [
+    {
+      "request": "ATI",
+      "response_chunks": [
+        "ELM327 v1.5\r\r>"
+      ]
+    },
+    {
+      "request": "ATZ",
+      "response_chunks": [
+        "ELM327 v1.5\r\r>"
+      ]
+    },
+    {
+      "request": "ATRV",
+      "response_chunks": [
+        "12.5V\r\r>"
+      ]
+    },
+    {
+      "request": "0100",
+      "response_chunks": [
+        "7E8064100",
+        "08180000\r\r>"
+      ]
+    },
+    {
+      "request": "0105",
+      "response_chunks": [
+        "7E803410570\r\r>"
+      ]
+    },
+    {
+      "request": "010C",
+      "response_chunks": [
+        "7E804410C",
+        "0B9C\r\r>"
+      ]
+    },
+    {
+      "request": "010D",
+      "response_chunks": [
+        "7E803410D00\r\r>"
+      ]
+    }
+  ],
+  "description": "Dados simulados para dashboard",
+  "expected_scan_summary": {},
+  "warnings": []
+}

@@ -13,8 +13,9 @@ small{color:#afc3be}#file{overflow-wrap:anywhere}#error{color:#ffc197}
 <main><h1>Telemetria OBD-II</h1>
 <section><h2>Bluetooth</h2><button id="scan">Buscar dispositivos</button>
 <label for="device">Dispositivo</label> <select id="device"><option value="">Faça uma busca</option></select>
-<button id="connect" disabled>Conectar</button> <button id="stop" disabled>Encerrar coleta</button>
+<button id="connect" disabled>Conectar</button> <button id="sandbox">Usar sandbox simulado</button> <button id="stop" disabled>Encerrar coleta</button>
 <p id="message" role="status"></p><p id="error" role="alert"></p></section>
+<section><h2>Reproduzir sessão gravada</h2><label for="recording">Arquivo</label> <select id="recording"><option value="">Carregando…</option></select> <button id="replay" disabled>Reproduzir</button> <button id="reload">Atualizar lista</button></section>
 <section><h2>Leituras ao vivo</h2><p id="status" role="status">Consultando serviço…</p>
 <ul id="cards"></ul><p id="file"></p></section></main>
 <script>
@@ -35,34 +36,42 @@ async function post(action,body={}){
  const data=await r.json(); if(!r.ok) throw Error(data.error||'Pedido recusado'); return data;
 }
 let active=false;
-function buttons(){el('connect').disabled=active||!el('device').value;el('stop').disabled=!active}
+function buttons(){el('connect').disabled=active||!el('device').value;el('sandbox').disabled=active;el('replay').disabled=active||!el('recording').value;el('stop').disabled=!active}
 el('device').onchange=buttons;
+el('recording').onchange=buttons;
+async function sessions(){
+ try{const r=await fetch('/api/sessions');if(!r.ok) throw Error('Não foi possível listar as sessões.');
+ const rows=await r.json();el('recording').replaceChildren(new Option('Selecionar…',''));
+ for(const name of rows) el('recording').add(new Option(name,name));
+ }catch(e){el('error').textContent=e.message} finally{buttons()}
+}
+el('reload').onclick=sessions;sessions();
+el('replay').onclick=async()=>{try{await post('replay',{file:el('recording').value});el('error').textContent=''}catch(e){el('error').textContent=e.message} buttons()};
 el('scan').onclick=async()=>{
  el('scan').disabled=true;el('message').textContent='Buscando…';el('error').textContent='';
  try{
  const rows=await post('scan');el('device').replaceChildren(new Option('Selecionar…',''));
- for(const d of rows){const opt=new Option(d.name+' · '+d.id+' · '+(d.transport==='ble'?'BLE (sem serial)':'Clássico'),d.id);
- opt.disabled=d.transport==='ble';el('device').add(opt)}
+ for(const d of rows){const opt=new Option(d.name+' · '+d.id+' · '+(d.transport==='ble'?'BLE':'Clássico'),d.id);
+ el('device').add(opt)}
  el('message').textContent=rows.length+' dispositivo(s) encontrado(s).';
  }catch(e){el('error').textContent=e.message;el('message').textContent='Busca interrompida.'}
  finally{el('scan').disabled=false;buttons()}
 };
-for(const action of ['connect','stop']) el(action).onclick=async()=>{
+for(const action of ['connect','sandbox','stop']) el(action).onclick=async()=>{
  el(action).disabled=true;
- try{await post(action,{id:el('device').value});el('error').textContent=''}catch(e){el('error').textContent=e.message;buttons()}
+ try{await post(action,{id:el('device').value});el('error').textContent=''}catch(e){el('error').textContent=e.message}
 };
-let expiry;
-function render(s){
- clearTimeout(expiry);
+async function refresh(){
+ try{
+ const r=await fetch('/api/state');if(!r.ok) throw Error();const s=await r.json();
  active=s.adapter||s.status==='Conectando';buttons();
- el('status').textContent=s.status+' · Adaptador '+(s.adapter?'conectado':'desconectado')+' · Central '+(s.ecu?'conectada':'sem leitura');
+ el('status').textContent=s.replay?'REPRODUÇÃO · '+s.status:(s.simulated?'SANDBOX · DADOS SIMULADOS · ':'')+s.status+' · Adaptador '+(s.adapter?'conectado':'desconectado')+' · Central '+(s.ecu?'conectada':'sem leitura');
  el('file').textContent=s.path?'Arquivo da sessão: '+s.path:'';
  const readings=s.sensors;
  const speed=readings['010D'], fuel=readings['015E'];
  const fresh=row=>row && Number.isFinite(row.value) && Date.now()-Date.parse(row.time)>=0 && Date.now()-Date.parse(row.time)<=10000;
  if(s.ecu && fresh(speed) && fresh(fuel) && speed.value>0 && fuel.value>0 && speed.ecu===fuel.ecu){
    readings.economy={value:speed.value/fuel.value,unit:'km/L',time:speed.time<fuel.time?speed.time:fuel.time};
-   expiry=setTimeout(()=>{el('economy').parentElement.hidden=true},Math.max(0,10000+Date.parse(readings.economy.time)-Date.now()));
  }
  for(const id of Object.keys(metrics)){
    const row=readings[id],value=el(id);
@@ -70,21 +79,8 @@ function render(s){
    value.textContent=row?row.value.toLocaleString('pt-BR',{maximumFractionDigits:id==='0142'?3:2})+' '+row.unit:'—';
    el(id+'time').textContent=row?'Última leitura '+new Date(row.time).toLocaleTimeString():'Sem leitura';
  }
+ }catch{el('economy').parentElement.hidden=true;el('status').textContent='Serviço local indisponível. Leituras pausadas.'}
+ setTimeout(refresh,800)
 }
-const events=new EventSource('/api/events');
-events.onmessage=event=>render(JSON.parse(event.data));
-// Uma sessão iniciada antes da atualização ainda usa o servidor sem SSE.
-async function legacyRefresh(){
- try{
-   const response=await fetch('/api/state');
-   if(!response.ok) throw Error();
-   render(await response.json());
- }catch{el('status').textContent='Serviço local indisponível.'}
- setTimeout(legacyRefresh,800);
-}
-events.onerror=()=>{
- if(events.readyState===EventSource.CLOSED){legacyRefresh();return}
- el('economy').parentElement.hidden=true;
- el('status').textContent='Conexão ao vivo interrompida. Aguardando reconexão…';
-};
+refresh();
 </script></html>
