@@ -11,9 +11,8 @@ strong{display:block;color:#81edcf;font:600 2rem ui-monospace,monospace;margin:.
 small{color:#afc3be}#file{overflow-wrap:anywhere}#error{color:#ffc197}
 </style>
 <main><h1>Telemetria OBD-II</h1>
-<section><h2>Bluetooth</h2><button id="scan">Buscar dispositivos</button>
-<label for="device">Dispositivo</label> <select id="device"><option value="">Faça uma busca</option></select>
-<button id="connect" disabled>Conectar</button> <button id="sandbox">Usar sandbox simulado</button> <button id="stop" disabled>Encerrar coleta</button>
+<section><h2>Bluetooth</h2><button id="connect">Conectar OBDII</button>
+<button id="sandbox">Usar sandbox simulado</button> <button id="stop" disabled>Encerrar coleta</button>
 <p id="message" role="status"></p><p id="error" role="alert"></p></section>
 <section><h2>Reproduzir sessão gravada</h2><label for="recording">Arquivo</label> <select id="recording"><option value="">Carregando…</option></select> <button id="replay" disabled>Reproduzir</button> <button id="reload">Atualizar lista</button></section>
 <section><h2>Leituras ao vivo</h2><p id="status" role="status">Consultando serviço…</p>
@@ -36,8 +35,7 @@ async function post(action,body={}){
  const data=await r.json(); if(!r.ok) throw Error(data.error||'Pedido recusado'); return data;
 }
 let active=false;
-function buttons(){el('connect').disabled=active||!el('device').value;el('sandbox').disabled=active;el('replay').disabled=active||!el('recording').value;el('stop').disabled=!active}
-el('device').onchange=buttons;
+function buttons(){el('connect').disabled=active;el('sandbox').disabled=active;el('replay').disabled=active||!el('recording').value;el('stop').disabled=!active}
 el('recording').onchange=buttons;
 async function sessions(){
  try{const r=await fetch('/api/sessions');if(!r.ok) throw Error('Não foi possível listar as sessões.');
@@ -47,19 +45,18 @@ async function sessions(){
 }
 el('reload').onclick=sessions;sessions();
 el('replay').onclick=async()=>{try{await post('replay',{file:el('recording').value});el('error').textContent=''}catch(e){el('error').textContent=e.message} buttons()};
-el('scan').onclick=async()=>{
- el('scan').disabled=true;el('message').textContent='Buscando…';el('error').textContent='';
+el('connect').onclick=async()=>{
+ el('connect').disabled=true;el('message').textContent='Buscando adaptador OBDII…';el('error').textContent='';
  try{
- const rows=await post('scan');el('device').replaceChildren(new Option('Selecionar…',''));
- for(const d of rows){const opt=new Option(d.name+' · '+d.id+' · '+(d.transport==='ble'?'BLE':'Clássico'),d.id);
- el('device').add(opt)}
- el('message').textContent=rows.length+' dispositivo(s) encontrado(s).';
- }catch(e){el('error').textContent=e.message;el('message').textContent='Busca interrompida.'}
- finally{el('scan').disabled=false;buttons()}
+ const rows=await post('scan'),device=rows.find(d=>d.id==='A293FAE3-A046-207F-9F0E-6D059518243B'&&d.transport==='ble');
+ if(!device)throw Error('Adaptador OBDII BLE não encontrado.');
+ el('message').textContent='Conectando ao OBDII…';await post('connect',{id:device.id});active=true;el('error').textContent='';
+ }catch(e){el('error').textContent=e.message;el('message').textContent='Conexão não iniciada.'}
+ finally{buttons()}
 };
-for(const action of ['connect','sandbox','stop']) el(action).onclick=async()=>{
+for(const action of ['sandbox','stop']) el(action).onclick=async()=>{
  el(action).disabled=true;
- try{await post(action,{id:el('device').value});el('error').textContent=''}catch(e){el('error').textContent=e.message}
+ try{await post(action);el('error').textContent=''}catch(e){el('error').textContent=e.message}
 };
 async function refresh(){
  try{

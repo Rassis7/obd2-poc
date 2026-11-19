@@ -184,7 +184,7 @@ def collect(query, save, stop):
                 if number % 32:
                     request = f'{mode:02X}{number:02X}{suffix}'
                     reply = f'{64+mode:02X}{number:02X}{suffix}'
-                    if request != '010B':
+                    if request not in ('010B', '0904'):
                         ask(request, reply, announced[number])
                     if mode == 1:
                         live.append((request, reply, announced[number]))
